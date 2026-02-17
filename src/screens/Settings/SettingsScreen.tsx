@@ -3,9 +3,12 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { useAppStore } from '../../stores/appStore';
-import type { Habit, Phase, HabitCategory } from '../../types';
+import type { Habit, HabitCategory } from '../../types';
 
 const CATEGORIES: HabitCategory[] = ['physical', 'creative', 'structural', 'sovereign'];
+const CATEGORY_COLORS: Record<HabitCategory, string> = {
+  physical: colors.somatic, creative: colors.noetic, structural: colors.structural, sovereign: colors.sovereign,
+};
 
 export const SettingsScreen: React.FC = () => {
   const store = useAppStore();
@@ -28,6 +31,7 @@ export const SettingsScreen: React.FC = () => {
   // Confirm modals
   const [exportModal, setExportModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   const openHabitEdit = (h: Habit) => {
     setEditHabit(h); setHabitName(h.name); setHabitCategory(h.category);
@@ -44,37 +48,44 @@ export const SettingsScreen: React.FC = () => {
     setEditHabit(null);
   };
 
-  type SectionItem = { key: string; label: string; emoji: string };
+  type SectionItem = { key: string; label: string; icon: string };
   const sections: SectionItem[] = [
-    { key: 'habits', label: 'Habit Editor', emoji: '🎯' },
-    { key: 'phases', label: 'Phase Manager', emoji: '🔄' },
-    { key: 'ai', label: 'AI Configuration', emoji: '🤖' },
-    { key: 'notifs', label: 'Notifications', emoji: '🔔' },
-    { key: 'appearance', label: 'Appearance', emoji: '🎨' },
-    { key: 'data', label: 'Data', emoji: '💾' },
+    { key: 'habits', label: 'Habit Editor', icon: '🎯' },
+    { key: 'phases', label: 'Phase Manager', icon: '🔄' },
+    { key: 'ai', label: 'AI Configuration', icon: '🤖' },
+    { key: 'notifs', label: 'Notifications', icon: '🔔' },
+    { key: 'appearance', label: 'Appearance', icon: '🎨' },
+    { key: 'data', label: 'Data', icon: '💾' },
   ];
+
+  const activePhase = store.phases.find(p => p.isActive);
 
   return (
     <SafeAreaView style={s.safe}>
       <ScrollView style={s.scroll} contentContainerStyle={s.content}>
-        <Text style={s.header}>SETTINGS</Text>
+        <Text style={s.header}>⚙️ SETTINGS</Text>
 
         {sections.map(sec => (
           <View key={sec.key}>
-            <TouchableOpacity style={s.sectionHeader} onPress={() => setSection(section === sec.key ? null : sec.key)}>
-              <Text style={s.sectionEmoji}>{sec.emoji}</Text>
+            <TouchableOpacity style={s.sectionHeader} onPress={() => setSection(section === sec.key ? null : sec.key)} activeOpacity={0.7}>
+              <Text style={s.sectionIcon}>{sec.icon}</Text>
               <Text style={s.sectionLabel}>{sec.label}</Text>
               <Text style={s.sectionArrow}>{section === sec.key ? '▾' : '▸'}</Text>
             </TouchableOpacity>
 
             {section === sec.key && sec.key === 'habits' && (
               <View style={s.sectionBody}>
-                {store.habits.map((h, i) => (
-                  <TouchableOpacity key={h.id} style={s.habitItem} onPress={() => openHabitEdit(h)}>
-                    <Text style={s.habitOrder}>☰</Text>
+                {store.habits.map(h => (
+                  <TouchableOpacity key={h.id} style={s.habitItem} onPress={() => openHabitEdit(h)} activeOpacity={0.7}>
+                    <View style={[s.categoryDot, { backgroundColor: CATEGORY_COLORS[h.category] }]} />
                     <View style={{ flex: 1 }}>
                       <Text style={s.habitName}>{h.name}</Text>
-                      <Text style={s.habitMeta}>{h.category} · {h.xpWeight} XP</Text>
+                      <View style={s.habitMetaRow}>
+                        <Text style={[s.habitMeta, { color: CATEGORY_COLORS[h.category] }]}>{h.category}</Text>
+                        <View style={s.xpBadge}>
+                          <Text style={s.xpBadgeText}>{h.xpWeight} XP</Text>
+                        </View>
+                      </View>
                     </View>
                     <Text style={s.editIcon}>✏️</Text>
                   </TouchableOpacity>
@@ -84,6 +95,15 @@ export const SettingsScreen: React.FC = () => {
 
             {section === sec.key && sec.key === 'phases' && (
               <View style={s.sectionBody}>
+                {/* Active phase prominent at top */}
+                {activePhase && (
+                  <View style={s.activePhaseCard}>
+                    <Text style={s.activePhaseLabel}>🟢 ACTIVE PHASE</Text>
+                    <Text style={s.activePhaseName}>{activePhase.name}</Text>
+                    <Text style={s.activePhaseDesc}>{activePhase.description}</Text>
+                    <Text style={s.activePhaseGoal}>🎯 {activePhase.goal}</Text>
+                  </View>
+                )}
                 {store.phases.map(p => (
                   <View key={p.id} style={s.phaseItem}>
                     <View style={{ flex: 1 }}>
@@ -126,9 +146,10 @@ export const SettingsScreen: React.FC = () => {
               <View style={s.sectionBody}>
                 {Object.entries(store.settings.notifications).map(([key, val]) => {
                   const labels: Record<string, string> = { morning: 'Morning Reminder', evening: 'Evening Audit', streakWarning: 'Streak Warning' };
+                  const icons: Record<string, string> = { morning: '🌅', evening: '🌙', streakWarning: '🔥' };
                   return (
                     <View key={key} style={s.toggleRow}>
-                      <Text style={s.toggleLabel}>{labels[key] || key}</Text>
+                      <Text style={s.toggleLabel}>{icons[key] ?? ''} {labels[key] || key}</Text>
                       <Switch value={val} onValueChange={v => store.updateSettings(`notifications.${key}`, v)} trackColor={{ true: colors.accent, false: colors.bgInput }} thumbColor={colors.textPrimary} />
                     </View>
                   );
@@ -139,7 +160,7 @@ export const SettingsScreen: React.FC = () => {
             {section === sec.key && sec.key === 'appearance' && (
               <View style={s.sectionBody}>
                 <View style={s.toggleRow}>
-                  <Text style={s.toggleLabel}>Dark Mode</Text>
+                  <Text style={s.toggleLabel}>🌑 Dark Mode</Text>
                   <Switch value={true} disabled trackColor={{ true: colors.accent, false: colors.bgInput }} thumbColor={colors.textPrimary} />
                 </View>
                 <Text style={s.disabledNote}>Dark mode is locked. This is the way.</Text>
@@ -151,13 +172,16 @@ export const SettingsScreen: React.FC = () => {
                 <TouchableOpacity style={s.dataBtn} onPress={() => setExportModal(true)}>
                   <Text style={s.dataBtnText}>📤 Export All Data</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[s.dataBtn, { borderColor: colors.danger }]} onPress={() => setDeleteModal(true)}>
+                <TouchableOpacity style={[s.dataBtn, { borderColor: colors.danger }]} onPress={() => { setDeleteConfirmText(''); setDeleteModal(true); }}>
                   <Text style={[s.dataBtnText, { color: colors.danger }]}>🗑 Delete Account</Text>
                 </TouchableOpacity>
               </View>
             )}
           </View>
         ))}
+
+        {/* Version */}
+        <Text style={s.version}>HabitOS v1.0.0-alpha</Text>
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
@@ -172,7 +196,8 @@ export const SettingsScreen: React.FC = () => {
             <Text style={s.fieldLabel}>Category</Text>
             <View style={s.chipWrap}>
               {CATEGORIES.map(c => (
-                <TouchableOpacity key={c} style={[s.chip, habitCategory === c && s.chipActive]} onPress={() => setHabitCategory(c)}>
+                <TouchableOpacity key={c} style={[s.chip, habitCategory === c && s.chipActive, habitCategory === c && { borderColor: CATEGORY_COLORS[c] }]} onPress={() => setHabitCategory(c)}>
+                  <View style={[s.chipDot, { backgroundColor: CATEGORY_COLORS[c] }]} />
                   <Text style={[s.chipText, habitCategory === c && s.chipTextActive]}>{c}</Text>
                 </TouchableOpacity>
               ))}
@@ -223,17 +248,29 @@ export const SettingsScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* Delete Confirm */}
+      {/* Delete Confirm — requires typing DELETE */}
       <Modal visible={deleteModal} transparent animationType="fade" onRequestClose={() => setDeleteModal(false)}>
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <Text style={s.modalTitle}>🗑 Delete Account</Text>
-            <Text style={s.modalSub}>This would permanently delete all data. Are you sure?</Text>
-            <Text style={s.modalSub}>(UI only — nothing actually happens.)</Text>
+            <Text style={s.modalSub}>This would permanently delete all data.</Text>
+            <Text style={s.modalSub}>Type <Text style={{ fontWeight: '800', color: colors.danger }}>DELETE</Text> to confirm:</Text>
+            <TextInput
+              style={s.modalInput}
+              value={deleteConfirmText}
+              onChangeText={setDeleteConfirmText}
+              placeholder='Type "DELETE"'
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="characters"
+            />
             <View style={s.modalActions}>
               <TouchableOpacity onPress={() => setDeleteModal(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={[s.submitBtn, { backgroundColor: colors.danger }]} onPress={() => setDeleteModal(false)}>
-                <Text style={s.submitText}>Delete</Text>
+              <TouchableOpacity
+                style={[s.submitBtn, { backgroundColor: deleteConfirmText === 'DELETE' ? colors.danger : colors.bgInput }]}
+                disabled={deleteConfirmText !== 'DELETE'}
+                onPress={() => setDeleteModal(false)}
+              >
+                <Text style={[s.submitText, { color: deleteConfirmText === 'DELETE' ? colors.textPrimary : colors.textMuted }]}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -248,52 +285,63 @@ const s = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: spacing.lg },
   header: { color: colors.textPrimary, fontSize: fontSize.xxl, fontWeight: '800', marginBottom: spacing.lg },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: 1, borderWidth: 1, borderColor: colors.border },
-  sectionEmoji: { fontSize: fontSize.lg, marginRight: spacing.sm },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: 1, borderWidth: 1, borderColor: colors.border, minHeight: 48 },
+  sectionIcon: { fontSize: fontSize.lg, marginRight: spacing.sm, width: 28, textAlign: 'center' },
   sectionLabel: { flex: 1, color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '600' },
   sectionArrow: { color: colors.textMuted, fontSize: fontSize.lg },
   sectionBody: { backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   // Habits
-  habitItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
-  habitOrder: { color: colors.textMuted, fontSize: fontSize.lg, marginRight: spacing.md },
+  habitItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, minHeight: 44 },
+  categoryDot: { width: 10, height: 10, borderRadius: 5, marginRight: spacing.sm },
   habitName: { color: colors.textPrimary, fontSize: fontSize.md },
-  habitMeta: { color: colors.textMuted, fontSize: fontSize.xs },
-  editIcon: { fontSize: fontSize.md },
+  habitMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2 },
+  habitMeta: { fontSize: fontSize.xs },
+  xpBadge: { backgroundColor: `${colors.xp}20`, borderRadius: borderRadius.sm, paddingHorizontal: spacing.xs, paddingVertical: 1 },
+  xpBadgeText: { color: colors.xp, fontSize: fontSize.xs, fontWeight: '700' },
+  editIcon: { fontSize: fontSize.md, minWidth: 44, textAlign: 'center' },
   // Phases
-  phaseItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  activePhaseCard: { backgroundColor: `${colors.success}10`, borderWidth: 1, borderColor: colors.success, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
+  activePhaseLabel: { color: colors.success, fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 2, marginBottom: spacing.xs },
+  activePhaseName: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
+  activePhaseDesc: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: 2 },
+  activePhaseGoal: { color: colors.accent, fontSize: fontSize.sm, marginTop: spacing.xs, fontWeight: '600' },
+  phaseItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, minHeight: 44 },
   phaseName: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '600' },
   phaseDesc: { color: colors.textSecondary, fontSize: fontSize.sm },
   phaseGoal: { color: colors.accent, fontSize: fontSize.xs, marginTop: 2 },
-  addBtn: { backgroundColor: colors.accentDim, borderWidth: 1, borderColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.md },
+  addBtn: { backgroundColor: colors.accentDim, borderWidth: 1, borderColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.md, minHeight: 44, justifyContent: 'center' },
   addBtnText: { color: colors.accent, fontWeight: '700' },
   // AI
   subHeader: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1, marginTop: spacing.md, marginBottom: spacing.sm },
   modelToggle: { flexDirection: 'row', gap: spacing.xs },
-  modelBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border },
+  modelBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, minHeight: 44, justifyContent: 'center' },
   modelBtnActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
   modelBtnText: { color: colors.textMuted, fontSize: fontSize.sm },
   modelBtnTextActive: { color: colors.textPrimary, fontWeight: '600' },
   // Toggles
-  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, minHeight: 44 },
   toggleLabel: { color: colors.textPrimary, fontSize: fontSize.md },
   disabledNote: { color: colors.textMuted, fontSize: fontSize.xs, fontStyle: 'italic', marginTop: spacing.xs },
   // Data
-  dataBtn: { borderWidth: 1, borderColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.md },
+  dataBtn: { borderWidth: 1, borderColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.md, minHeight: 44, justifyContent: 'center' },
   dataBtnText: { color: colors.accent, fontWeight: '700' },
+  // Version
+  version: { color: colors.textMuted, fontSize: fontSize.xs, textAlign: 'center', marginTop: spacing.xl, letterSpacing: 1 },
   // Modals
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalCard: { backgroundColor: colors.bgElevated, borderTopLeftRadius: borderRadius.xl, borderTopRightRadius: borderRadius.xl, padding: spacing.lg, paddingBottom: spacing.xxl },
   modalTitle: { color: colors.textPrimary, fontSize: fontSize.xl, fontWeight: '700', marginBottom: spacing.md },
   modalSub: { color: colors.textSecondary, fontSize: fontSize.md, marginBottom: spacing.sm },
-  modalInput: { backgroundColor: colors.bgInput, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  modalInput: { backgroundColor: colors.bgInput, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md, minHeight: 44 },
   fieldLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '600', marginBottom: spacing.xs },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md },
-  chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border },
-  chipActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, minHeight: 44 },
+  chipActive: { backgroundColor: colors.accentDim },
+  chipDot: { width: 8, height: 8, borderRadius: 4, marginRight: spacing.xs },
   chipText: { color: colors.textMuted, fontSize: fontSize.sm },
   chipTextActive: { color: colors.textPrimary, fontWeight: '600' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md, marginTop: spacing.md },
   cancelText: { color: colors.textSecondary, paddingVertical: spacing.sm },
-  submitBtn: { backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  submitBtn: { backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
   submitText: { color: colors.textPrimary, fontWeight: '700' },
 });

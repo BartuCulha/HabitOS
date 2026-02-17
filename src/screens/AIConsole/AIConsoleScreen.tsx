@@ -1,11 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  Modal, ScrollView, KeyboardAvoidingView, Platform, Alert,
+  Modal, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { useAppStore } from '../../stores/appStore';
+import { TypingIndicator } from '../../components/TypingIndicator';
+import { relativeTime } from '../../utils/time';
 import type { AIProvider, ISOSMode, ConversationMessage } from '../../types';
 
 const MODES: ISOSMode[] = ['default', 'warlord', 'architect', 'sovereign', 'noetic', 'somatic', 'shadow', 'pantheon'];
@@ -14,48 +17,108 @@ const MODE_LABELS: Record<ISOSMode, string> = {
   noetic: '🧠 Noetic', somatic: '🔴 Somatic', shadow: '👁 Shadow', pantheon: '🏛 Pantheon',
 };
 
-const PANTHEON_SPEAKERS = ['Strategos', 'Bio-Digital Lab', 'Ethereal Archive'];
+const PANTHEON_CONFIG: Record<string, { color: string; icon: string }> = {
+  'Strategos': { color: '#FF6B6B', icon: '⚔️' },
+  'Bio-Digital Lab': { color: '#4ECDC4', icon: '🧬' },
+  'Ethereal Archive': { color: '#FFD93D', icon: '📜' },
+};
+
+function parsePantheonSections(content: string): { speaker: string; text: string }[] {
+  const sections: { speaker: string; text: string }[] = [];
+  const regex = /\*?\*?\[([^\]]+)\]\*?\*?\s*([\s\S]*?)(?=\*?\*?\[|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    sections.push({ speaker: match[1], text: match[2].trim() });
+  }
+  return sections.length > 0 ? sections : [{ speaker: '', text: content }];
+}
 
 export const AIConsoleScreen: React.FC = () => {
   const store = useAppStore();
   const [input, setInput] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [pinModalMsg, setPinModalMsg] = useState<ConversationMessage | null>(null);
   const [pinTopic, setPinTopic] = useState('');
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList<ConversationMessage>>(null);
 
   const currentMessages = store.messages.filter(
     m => m.conversationId === store.activeConversationId
   );
 
-  const send = () => {
+  const send = useCallback(() => {
     if (!input.trim()) return;
-    store.sendMessage(input.trim());
+    const text = input.trim();
     setInput('');
+    setIsTyping(true);
+    // Simulate typing delay
+    setTimeout(() => {
+      store.sendMessage(text);
+      setIsTyping(false);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    }, 800);
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-  };
+  }, [input, store]);
 
   const isPantheon = store.isosMode === 'pantheon';
 
+  const handleDoubleTap = useCallback((content: string) => {
+    Clipboard.setStringAsync(content).catch(() => {});
+  }, []);
+
   const renderMessage = ({ item }: { item: ConversationMessage }) => {
     const isUser = item.role === 'user';
+    const timestamp = item.createdAt ? relativeTime(item.createdAt) : '';
+
+    if (isPantheon && !isUser) {
+      const sections = parsePantheonSections(item.content);
+      const hasSections = sections.length > 1 || sections[0].speaker !== '';
+      return (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onLongPress={() => { setPinModalMsg(item); setPinTopic(''); }}
+          onPress={() => handleDoubleTap(item.content)}
+          style={[styles.msgBubble, styles.msgPantheon]}
+        >
+          <Text style={styles.pantheonHeader}>🏛 PANTHEON COUNCIL</Text>
+          {item.isPinned && <Text style={styles.pinnedBadge}>📌 Pinned</Text>}
+          {hasSections ? sections.map((sec, i) => {
+            const cfg = PANTHEON_CONFIG[sec.speaker] || { color: colors.textPrimary, icon: '💬' };
+            return (
+              <View key={i} style={[styles.pantheonSection, { borderLeftColor: cfg.color }]}>
+                <Text style={[styles.pantheonSpeaker, { color: cfg.color }]}>{cfg.icon} {sec.speaker}</Text>
+                <Text style={styles.msgText}>{sec.text}</Text>
+              </View>
+            );
+          }) : (
+            <Text style={styles.msgText}>{item.content}</Text>
+          )}
+          {timestamp ? <Text style={styles.timestamp}>{timestamp}</Text> : null}
+        </TouchableOpacity>
+      );
+    }
+
     return (
       <TouchableOpacity
         activeOpacity={0.8}
         onLongPress={() => { if (!isUser) { setPinModalMsg(item); setPinTopic(''); } }}
-        style={[styles.msgBubble, isUser ? styles.msgUser : styles.msgAI, isPantheon && !isUser && styles.msgPantheon]}
+        onPress={() => handleDoubleTap(item.content)}
+        style={[styles.msgBubble, isUser ? styles.msgUser : styles.msgAI]}
       >
-        {isPantheon && !isUser && <Text style={styles.pantheonHeader}>🏛 PANTHEON COUNCIL</Text>}
         {item.isPinned && <Text style={styles.pinnedBadge}>📌 Pinned</Text>}
         <Text style={[styles.msgText, isUser && styles.msgTextUser]}>{item.content}</Text>
+        {timestamp ? <Text style={[styles.timestamp, isUser && styles.timestampUser]}>{timestamp}</Text> : null}
       </TouchableOpacity>
     );
   };
 
+  // Context injection preview for empty state
+  const contextPreview = `I know: Somatic ${store.todayScan?.somatic ?? '?'}, Streak ${store.profile.currentStreak} days, Rank ${store.profile.rank}, ${store.habits.length} habits tracked`;
+
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        {/* Top bar: model switcher */}
+        {/* Top bar */}
         <View style={styles.topBar}>
           <TouchableOpacity style={styles.drawerBtn} onPress={() => setDrawerOpen(true)}>
             <Text style={styles.drawerBtnText}>☰</Text>
@@ -72,7 +135,7 @@ export const AIConsoleScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* ISOS Mode selector */}
+        {/* Mode selector */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modeRow} contentContainerStyle={styles.modeRowContent}>
           {MODES.map(m => (
             <TouchableOpacity key={m} style={[styles.modeChip, store.isosMode === m && styles.modeChipActive, m === 'pantheon' && store.isosMode === 'pantheon' && styles.modeChipPantheon]} onPress={() => store.setIsosMode(m)}>
@@ -89,11 +152,15 @@ export const AIConsoleScreen: React.FC = () => {
           keyExtractor={item => item.id}
           style={styles.messageList}
           contentContainerStyle={styles.messageContent}
+          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyEmoji}>{isPantheon ? '🏛' : '🧠'}</Text>
               <Text style={styles.emptyTitle}>{isPantheon ? 'PANTHEON COUNCIL' : `${store.isosMode.toUpperCase()} MODE`}</Text>
               <Text style={styles.emptyText}>Start a conversation. Your context is loaded.</Text>
+              <View style={styles.contextPreview}>
+                <Text style={styles.contextPreviewText}>{contextPreview}</Text>
+              </View>
             </View>
           }
         />
@@ -124,15 +191,25 @@ export const AIConsoleScreen: React.FC = () => {
           <View style={styles.drawer}>
             <Text style={styles.drawerTitle}>CONVERSATIONS</Text>
             <ScrollView>
-              {store.conversations.map(c => (
-                <TouchableOpacity key={c.id} style={[styles.convItem, store.activeConversationId === c.id && styles.convItemActive]} onPress={() => { store.setActiveConversation(c.id); setDrawerOpen(false); }}>
-                  <Text style={styles.convTitle} numberOfLines={1}>{c.title}</Text>
-                  <View style={styles.convMeta}>
-                    <Text style={styles.convTag}>{c.mode}</Text>
-                    <Text style={styles.convProvider}>{c.provider}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {store.conversations.map(c => {
+                const msgs = store.messages.filter(m => m.conversationId === c.id);
+                const lastMsg = msgs[msgs.length - 1];
+                return (
+                  <TouchableOpacity key={c.id} style={[styles.convItem, store.activeConversationId === c.id && styles.convItemActive]} onPress={() => { store.setActiveConversation(c.id); setDrawerOpen(false); }}>
+                    <Text style={styles.convTitle} numberOfLines={1}>{c.title}</Text>
+                    {lastMsg && (
+                      <Text style={styles.convPreview} numberOfLines={1}>
+                        {lastMsg.role === 'user' ? 'You: ' : ''}{lastMsg.content.slice(0, 50)}
+                      </Text>
+                    )}
+                    <View style={styles.convMeta}>
+                      <Text style={styles.convTag}>{c.mode}</Text>
+                      <Text style={styles.convProvider}>{c.provider}</Text>
+                      <Text style={styles.convCount}>{msgs.length} msgs</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         </TouchableOpacity>
@@ -167,41 +244,47 @@ export const AIConsoleScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   topBar: { flexDirection: 'row', alignItems: 'center', padding: spacing.sm, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
-  drawerBtn: { padding: spacing.xs },
+  drawerBtn: { padding: spacing.xs, minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   drawerBtnText: { color: colors.textPrimary, fontSize: fontSize.xl },
   modelTabs: { flex: 1, flexDirection: 'row', justifyContent: 'center', gap: spacing.xs },
-  modelTab: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border },
+  modelTab: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, minHeight: 44, justifyContent: 'center' },
   modelTabActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   modelTabText: { color: colors.textMuted, fontSize: fontSize.md, fontWeight: '600' },
   modelTabTextActive: { color: colors.textPrimary },
   newChat: { color: colors.accent, fontSize: fontSize.sm, fontWeight: '700' },
   modeRow: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
   modeRowContent: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs },
-  modeChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCard },
+  modeChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCard, minHeight: 44, justifyContent: 'center' },
   modeChipActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
   modeChipPantheon: { borderColor: '#FFD700', backgroundColor: '#2D1B69' },
   modeChipText: { color: colors.textSecondary, fontSize: fontSize.sm },
   modeChipTextActive: { color: colors.textPrimary, fontWeight: '600' },
   messageList: { flex: 1 },
   messageContent: { padding: spacing.md, gap: spacing.md, flexGrow: 1 },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 100 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 },
   emptyEmoji: { fontSize: 48, marginBottom: spacing.md },
   emptyTitle: { color: colors.textPrimary, fontSize: fontSize.xl, fontWeight: '800', letterSpacing: 2 },
   emptyText: { color: colors.textMuted, fontSize: fontSize.md, marginTop: spacing.sm },
+  contextPreview: { marginTop: spacing.lg, backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, maxWidth: '90%' },
+  contextPreviewText: { color: colors.textMuted, fontSize: fontSize.xs, fontFamily: 'Courier', lineHeight: 18 },
   msgBubble: { padding: spacing.md, borderRadius: borderRadius.lg, maxWidth: '85%' },
   msgUser: { backgroundColor: colors.accentDim, alignSelf: 'flex-end', borderBottomRightRadius: borderRadius.sm },
   msgAI: { backgroundColor: colors.bgCard, alignSelf: 'flex-start', borderBottomLeftRadius: borderRadius.sm, borderWidth: 1, borderColor: colors.border },
-  msgPantheon: { borderColor: '#FFD700', borderWidth: 1, backgroundColor: '#1A1030' },
-  pantheonHeader: { color: '#FFD700', fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 2, marginBottom: spacing.xs },
+  msgPantheon: { borderColor: '#FFD700', borderWidth: 1, backgroundColor: '#1A1030', alignSelf: 'flex-start', maxWidth: '95%' },
+  pantheonHeader: { color: '#FFD700', fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 2, marginBottom: spacing.sm },
+  pantheonSection: { borderLeftWidth: 3, paddingLeft: spacing.sm, marginBottom: spacing.md },
+  pantheonSpeaker: { fontSize: fontSize.sm, fontWeight: '800', letterSpacing: 1, marginBottom: spacing.xs },
   pinnedBadge: { color: colors.xp, fontSize: fontSize.xs, marginBottom: spacing.xs },
   msgText: { color: colors.textPrimary, fontSize: fontSize.md, lineHeight: 22 },
   msgTextUser: { color: colors.textPrimary },
+  timestamp: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.xs },
+  timestampUser: { textAlign: 'right' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs },
   inputRowPantheon: { borderTopColor: '#FFD700' },
-  voiceBtn: { padding: spacing.sm },
+  voiceBtn: { padding: spacing.sm, minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   voiceBtnText: { fontSize: 20 },
-  textInput: { flex: 1, backgroundColor: colors.bgInput, borderRadius: borderRadius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.textPrimary, fontSize: fontSize.md, maxHeight: 100, borderWidth: 1, borderColor: colors.border },
-  sendBtn: { backgroundColor: colors.accent, width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+  textInput: { flex: 1, backgroundColor: colors.bgInput, borderRadius: borderRadius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.textPrimary, fontSize: fontSize.md, maxHeight: 100, borderWidth: 1, borderColor: colors.border, minHeight: 44 },
+  sendBtn: { backgroundColor: colors.accent, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   sendBtnText: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
   // Drawer
   drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row' },
@@ -210,18 +293,20 @@ const styles = StyleSheet.create({
   convItem: { paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   convItemActive: { borderLeftWidth: 3, borderLeftColor: colors.accent, paddingLeft: spacing.sm },
   convTitle: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '500' },
+  convPreview: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
   convMeta: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   convTag: { color: colors.accent, fontSize: fontSize.xs },
   convProvider: { color: colors.textMuted, fontSize: fontSize.xs },
+  convCount: { color: colors.textMuted, fontSize: fontSize.xs },
   // Pin modal
   pinOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
   pinCard: { backgroundColor: colors.bgElevated, borderRadius: borderRadius.lg, padding: spacing.lg, width: '85%' },
   pinTitle: { color: colors.textPrimary, fontSize: fontSize.xl, fontWeight: '700', marginBottom: spacing.md },
   pinPreview: { color: colors.textSecondary, fontSize: fontSize.sm, marginBottom: spacing.md, fontStyle: 'italic' },
   fieldLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '600', marginBottom: spacing.xs },
-  pinInput: { backgroundColor: colors.bgInput, borderRadius: borderRadius.md, padding: spacing.sm, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  pinInput: { backgroundColor: colors.bgInput, borderRadius: borderRadius.md, padding: spacing.sm, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md, minHeight: 44 },
   pinActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md },
   pinCancel: { color: colors.textSecondary, fontSize: fontSize.md, paddingVertical: spacing.sm },
-  pinBtn: { backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  pinBtn: { backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
   pinBtnText: { color: colors.textPrimary, fontWeight: '700' },
 });

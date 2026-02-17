@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
+import { TabBar } from '../../components/TabBar';
 import { SAMPLE_CHRONOS_REPORT, SAMPLE_CORRELATIONS, DEFAULT_SHADOW_PATTERNS, SAMPLE_MILESTONES, DAILY_SCORES } from '../../utils/mockData';
 
 type Tab = 'chronos' | 'patterns' | 'correlations' | 'streaks' | 'milestones';
@@ -14,23 +15,22 @@ const TABS: { key: Tab; label: string; emoji: string }[] = [
   { key: 'milestones', label: 'Timeline', emoji: '🏁' },
 ];
 
+const RANK_BADGES: Record<string, string> = {
+  Novice: '🟤', Operator: '⚪', Architect: '🔵', Warlord: '🔴', Sovereign: '🟣', Archon: '👑',
+};
+
 export const ObservatoryScreen: React.FC = () => {
   const [tab, setTab] = useState<Tab>('chronos');
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
   const report = SAMPLE_CHRONOS_REPORT;
 
+  // Streak heatmap: 7 cols x ~5 rows
+  const heatmapData = DAILY_SCORES.slice(-28); // last 28 days for clean 7-col grid
+
   return (
     <SafeAreaView style={s.safe}>
-      <Text style={s.header}>OBSERVATORY</Text>
-
-      {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabRow} contentContainerStyle={s.tabRowContent}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t.key} style={[s.tab, tab === t.key && s.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[s.tabText, tab === t.key && s.tabTextActive]}>{t.emoji} {t.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <Text style={s.header}>🔭 OBSERVATORY</Text>
+      <TabBar tabs={TABS} activeTab={tab} onTabPress={setTab} />
 
       <ScrollView style={s.scroll} contentContainerStyle={s.content}>
         {/* Chronos Report */}
@@ -57,14 +57,14 @@ export const ObservatoryScreen: React.FC = () => {
               </View>
             </View>
 
-            <View style={s.card}>
+            <View style={[s.card, { borderLeftWidth: 3, borderLeftColor: colors.success }]}>
               <Text style={s.sectionTitle}>📈 Growth Vectors</Text>
-              {report.growthVectors.map((v, i) => <Text key={i} style={s.bulletItem}>• {v}</Text>)}
+              {report.growthVectors.map((v, i) => <Text key={i} style={s.growthItem}>• {v}</Text>)}
             </View>
 
-            <View style={s.card}>
+            <View style={[s.card, { borderLeftWidth: 3, borderLeftColor: colors.warning }]}>
               <Text style={s.sectionTitle}>⚠️ Stagnation Points</Text>
-              {report.stagnationPoints.map((v, i) => <Text key={i} style={s.bulletItemWarn}>• {v}</Text>)}
+              {report.stagnationPoints.map((v, i) => <Text key={i} style={s.stagnationItem}>• {v}</Text>)}
             </View>
 
             <View style={s.card}>
@@ -72,22 +72,25 @@ export const ObservatoryScreen: React.FC = () => {
               {report.correlations.map((v, i) => <Text key={i} style={s.bulletItem}>• {v}</Text>)}
             </View>
 
-            <View style={s.card}>
+            <View style={[s.card, { borderLeftWidth: 3, borderLeftColor: colors.info }]}>
               <Text style={s.sectionTitle}>💡 Recommendation</Text>
               <Text style={s.recText}>{report.recommendation}</Text>
             </View>
 
             <View style={s.card}>
               <Text style={s.sectionTitle}>👁 Shadow Frequency</Text>
-              {Object.entries(report.shadowFrequency).map(([name, count]) => (
-                <View key={name} style={s.freqRow}>
-                  <Text style={s.freqName}>{name}</Text>
-                  <View style={s.freqBarBg}>
-                    <View style={[s.freqBarFill, { width: `${(count as number / 5) * 100}%` }]} />
+              {Object.entries(report.shadowFrequency).map(([name, count]) => {
+                const maxFreq = Math.max(...Object.values(report.shadowFrequency));
+                return (
+                  <View key={name} style={s.freqRow}>
+                    <Text style={s.freqName}>{name}</Text>
+                    <View style={s.freqBarBg}>
+                      <View style={[s.freqBarFill, { width: `${((count as number) / maxFreq) * 100}%` }]} />
+                    </View>
+                    <Text style={s.freqCount}>{count}</Text>
                   </View>
-                  <Text style={s.freqCount}>{count}</Text>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </>
         )}
@@ -99,11 +102,16 @@ export const ObservatoryScreen: React.FC = () => {
               const trendArrow = p.trend === 'increasing' ? '↑' : p.trend === 'decreasing' ? '↓' : '→';
               const trendColor = p.trend === 'increasing' ? colors.danger : p.trend === 'decreasing' ? colors.success : colors.textMuted;
               const expanded = expandedPattern === p.id;
+              const maxFreq = Math.max(...DEFAULT_SHADOW_PATTERNS.map(pp => pp.frequencyLast30));
               return (
-                <TouchableOpacity key={p.id} style={s.card} onPress={() => setExpandedPattern(expanded ? null : p.id)}>
+                <TouchableOpacity key={p.id} style={s.card} onPress={() => setExpandedPattern(expanded ? null : p.id)} activeOpacity={0.7}>
                   <View style={s.patternHeader}>
                     <Text style={s.patternName}>{p.name}</Text>
                     <Text style={[s.patternTrend, { color: trendColor }]}>{trendArrow} {p.frequencyLast30}</Text>
+                  </View>
+                  {/* Frequency bar */}
+                  <View style={s.patternBarBg}>
+                    <View style={[s.patternBarFill, { width: `${(p.frequencyLast30 / maxFreq) * 100}%`, backgroundColor: trendColor }]} />
                   </View>
                   <Text style={s.patternDesc}>{p.description}</Text>
                   {expanded && (
@@ -124,36 +132,59 @@ export const ObservatoryScreen: React.FC = () => {
           </>
         )}
 
-        {/* Correlations */}
+        {/* Correlations — color coded by strength */}
         {tab === 'correlations' && (
           <>
             <Text style={s.corNote}>Correlations visible after 3+ days of data.</Text>
-            {SAMPLE_CORRELATIONS.map(c => (
-              <View key={c.id} style={s.card}>
-                <View style={s.corHeader}>
-                  <Text style={s.corFactors}>{c.factorA} ↔ {c.factorB}</Text>
-                  <Text style={[s.corCoeff, { color: c.direction === 'positive' ? colors.success : colors.danger }]}>
-                    {c.direction === 'negative' ? '-' : ''}{c.coefficient.toFixed(2)}
-                  </Text>
+            {SAMPLE_CORRELATIONS.map(c => {
+              const abs = Math.abs(c.coefficient);
+              const strengthColor = abs > 0.7 ? colors.success : abs >= 0.5 ? colors.warning : colors.textMuted;
+              const strengthLabel = abs > 0.7 ? 'Strong' : abs >= 0.5 ? 'Moderate' : 'Weak';
+              return (
+                <View key={c.id} style={[s.card, { borderLeftWidth: 3, borderLeftColor: strengthColor }]}>
+                  <View style={s.corHeader}>
+                    <Text style={s.corFactors}>{c.factorA} ↔ {c.factorB}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[s.corCoeff, { color: c.direction === 'positive' ? colors.success : colors.danger }]}>
+                        {c.direction === 'negative' ? '-' : ''}{c.coefficient.toFixed(2)}
+                      </Text>
+                      <Text style={[s.corStrength, { color: strengthColor }]}>{strengthLabel}</Text>
+                    </View>
+                  </View>
+                  <Text style={s.corInsight}>{c.insight}</Text>
                 </View>
-                <Text style={s.corInsight}>{c.insight}</Text>
-              </View>
-            ))}
+              );
+            })}
           </>
         )}
 
-        {/* Streaks */}
+        {/* Streaks — proper 7-column heatmap */}
         {tab === 'streaks' && (
           <>
             <View style={s.card}>
-              <Text style={s.cardTitle}>30-DAY CONSISTENCY</Text>
-              <View style={s.streakGrid}>
-                {DAILY_SCORES.map((d, i) => {
-                  const intensity = d.score / 100;
+              <Text style={s.cardTitle}>30-DAY HEATMAP</Text>
+              <View style={s.heatmapDayHeaders}>
+                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                  <Text key={i} style={s.heatmapDayLabel}>{d}</Text>
+                ))}
+              </View>
+              <View style={s.heatmapGrid}>
+                {heatmapData.map((d, i) => {
+                  const bg = d.score >= 70 ? colors.success : d.score >= 40 ? colors.warning : colors.danger;
+                  const opacity = 0.3 + (d.score / 100) * 0.7;
                   return (
-                    <View key={i} style={[s.streakCell, { opacity: 0.2 + intensity * 0.8, backgroundColor: d.score >= 70 ? colors.success : d.score >= 40 ? colors.warning : colors.danger }]} />
+                    <View key={i} style={[s.heatmapCell, { backgroundColor: bg, opacity }]}>
+                      <Text style={s.heatmapCellText}>{d.score}</Text>
+                    </View>
                   );
                 })}
+              </View>
+              <View style={s.heatmapLegend}>
+                <Text style={s.heatmapLegendText}>Low</Text>
+                <View style={[s.heatmapLegendDot, { backgroundColor: colors.danger }]} />
+                <View style={[s.heatmapLegendDot, { backgroundColor: colors.warning }]} />
+                <View style={[s.heatmapLegendDot, { backgroundColor: colors.success }]} />
+                <Text style={s.heatmapLegendText}>High</Text>
               </View>
             </View>
 
@@ -176,20 +207,23 @@ export const ObservatoryScreen: React.FC = () => {
           </>
         )}
 
-        {/* Milestones */}
+        {/* Milestones — with connecting line and rank badges */}
         {tab === 'milestones' && (
           <View style={s.timeline}>
             {SAMPLE_MILESTONES.map((m, i) => (
               <View key={m.id} style={s.timelineItem}>
                 <View style={s.timelineLine}>
-                  <View style={s.timelineDot} />
+                  <View style={[s.timelineDot, i === SAMPLE_MILESTONES.length - 1 && { backgroundColor: colors.xp }]} />
                   {i < SAMPLE_MILESTONES.length - 1 && <View style={s.timelineConnector} />}
                 </View>
                 <View style={s.timelineContent}>
                   <Text style={s.timelineDate}>{m.date}</Text>
                   <Text style={s.timelineTitle}>{m.title}</Text>
                   <Text style={s.timelineDesc}>{m.description}</Text>
-                  <Text style={s.timelineMeta}>{m.rankAtTime} · {m.xpAtTime} XP</Text>
+                  <View style={s.timelineMeta}>
+                    <Text style={s.timelineRankBadge}>{RANK_BADGES[m.rankAtTime] ?? '⚪'} {m.rankAtTime}</Text>
+                    <Text style={s.timelineXp}>{m.xpAtTime} XP</Text>
+                  </View>
                 </View>
               </View>
             ))}
@@ -205,19 +239,14 @@ export const ObservatoryScreen: React.FC = () => {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: { color: colors.textPrimary, fontSize: fontSize.xxl, fontWeight: '800', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  tabRow: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tabRowContent: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs },
-  tab: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border },
-  tabActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
-  tabText: { color: colors.textMuted, fontSize: fontSize.sm },
-  tabTextActive: { color: colors.textPrimary, fontWeight: '600' },
   scroll: { flex: 1 },
   content: { padding: spacing.lg },
   card: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
   cardTitle: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 2, marginBottom: spacing.md },
   sectionTitle: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700', marginBottom: spacing.sm },
   bulletItem: { color: colors.textSecondary, fontSize: fontSize.sm, marginBottom: spacing.xs, lineHeight: 20 },
-  bulletItemWarn: { color: colors.warning, fontSize: fontSize.sm, marginBottom: spacing.xs, lineHeight: 20 },
+  growthItem: { color: colors.success, fontSize: fontSize.sm, marginBottom: spacing.xs, lineHeight: 20 },
+  stagnationItem: { color: colors.warning, fontSize: fontSize.sm, marginBottom: spacing.xs, lineHeight: 20 },
   recText: { color: colors.textPrimary, fontSize: fontSize.md, lineHeight: 22, fontStyle: 'italic' },
   // Report grid
   reportGrid: { flexDirection: 'row', gap: spacing.md },
@@ -237,19 +266,28 @@ const s = StyleSheet.create({
   patternHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   patternName: { color: colors.textPrimary, fontSize: fontSize.lg, fontWeight: '700' },
   patternTrend: { fontSize: fontSize.md, fontWeight: '700' },
-  patternDesc: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs },
+  patternBarBg: { height: 6, backgroundColor: colors.bgInput, borderRadius: 3, marginVertical: spacing.sm, overflow: 'hidden' },
+  patternBarFill: { height: '100%', borderRadius: 3 },
+  patternDesc: { color: colors.textSecondary, fontSize: fontSize.sm },
   patternDetails: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
   detailLabel: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1, marginTop: spacing.sm },
   detailText: { color: colors.textPrimary, fontSize: fontSize.sm, lineHeight: 20 },
   // Correlations
   corNote: { color: colors.textMuted, fontSize: fontSize.sm, marginBottom: spacing.md, fontStyle: 'italic' },
-  corHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  corHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.sm },
   corFactors: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '600', flex: 1 },
   corCoeff: { fontSize: fontSize.xl, fontWeight: '800' },
+  corStrength: { fontSize: fontSize.xs, fontWeight: '600', marginTop: 2 },
   corInsight: { color: colors.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
-  // Streaks
-  streakGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  streakCell: { width: 16, height: 16, borderRadius: 3 },
+  // Heatmap
+  heatmapDayHeaders: { flexDirection: 'row', marginBottom: spacing.xs },
+  heatmapDayLabel: { width: `${100 / 7}%` as unknown as number, textAlign: 'center', color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '600' },
+  heatmapGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  heatmapCell: { width: `${100 / 7}%` as unknown as number, aspectRatio: 1, borderRadius: 4, justifyContent: 'center', alignItems: 'center', marginBottom: 3 },
+  heatmapCellText: { color: colors.textPrimary, fontSize: 8, fontWeight: '700' },
+  heatmapLegend: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  heatmapLegendText: { color: colors.textMuted, fontSize: fontSize.xs },
+  heatmapLegendDot: { width: 12, height: 12, borderRadius: 3 },
   weekRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   weekLabel: { color: colors.textSecondary, fontSize: fontSize.sm, width: 100 },
   weekBarBg: { flex: 1, height: 12, backgroundColor: colors.bgInput, borderRadius: 6, overflow: 'hidden', marginHorizontal: spacing.sm },
@@ -265,5 +303,7 @@ const s = StyleSheet.create({
   timelineDate: { color: colors.textMuted, fontSize: fontSize.xs },
   timelineTitle: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: '700', marginTop: 2 },
   timelineDesc: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs, lineHeight: 20 },
-  timelineMeta: { color: colors.accent, fontSize: fontSize.xs, marginTop: spacing.xs },
+  timelineMeta: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs },
+  timelineRankBadge: { color: colors.accent, fontSize: fontSize.xs, fontWeight: '700' },
+  timelineXp: { color: colors.xp, fontSize: fontSize.xs, fontWeight: '700' },
 });

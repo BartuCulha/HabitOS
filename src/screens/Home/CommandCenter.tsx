@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ScrollView, StyleSheet, View, Text, Modal, TouchableOpacity, TextInput, Switch } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ScrollView, StyleSheet, View, Text, Modal, TouchableOpacity, TextInput, Switch, RefreshControl, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
+import * as Haptics from 'expo-haptics';
 import { MissionBanner } from '../../components/MissionBanner';
 import { StatusBar } from '../../components/StatusBar';
 import { FourDScanner } from '../../components/FourDScanner';
 import { HabitChecklist } from '../../components/HabitChecklist';
 import { QuickActions } from '../../components/QuickActions';
 import { RankUpModal } from '../../components/RankUpModal';
+import { AnimatedNumber } from '../../components/AnimatedNumber';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { useAppStore } from '../../stores/appStore';
 import { DEFAULT_SHADOW_PATTERNS } from '../../utils/mockData';
@@ -19,6 +21,27 @@ const BLOCK_CATEGORIES: BlockCategory[] = ['creative', 'structural', 'physical',
 export const CommandCenter: React.FC = () => {
   const store = useAppStore();
   const today = new Date().toISOString().split('T')[0];
+
+  // XP flash
+  const xpFlash = useRef(new Animated.Value(0)).current;
+  const prevXp = useRef(store.profile.totalXp);
+  useEffect(() => {
+    if (store.profile.totalXp > prevXp.current) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Animated.sequence([
+        Animated.timing(xpFlash, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.timing(xpFlash, { toValue: 0, duration: 500, useNativeDriver: true }),
+      ]).start();
+    }
+    prevXp.current = store.profile.totalXp;
+  }, [store.profile.totalXp, xpFlash]);
+
+  // Pull to refresh
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   // Mission modal
   const [missionModal, setMissionModal] = useState(false);
@@ -64,13 +87,31 @@ export const CommandCenter: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const allHabitsCompleted = store.todayCompletions.length >= store.habits.length && store.habits.length > 0;
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} progressBackgroundColor={colors.bgCard} />}
+      >
         <View style={styles.header}>
-          <Text style={styles.logo}>HABIT<Text style={styles.logoAccent}>OS</Text></Text>
+          <View>
+            <Text style={styles.logo}>HABIT<Text style={styles.logoAccent}>OS</Text></Text>
+            {store.activeBlock && (
+              <TouchableOpacity onPress={() => setBlockModal(true)} style={styles.headerBlockIndicator}>
+                <Text style={styles.headerBlockText}>⏱ {store.activeBlock.category.toUpperCase()} {formatTimer(blockTimer)}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <Text style={styles.date}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</Text>
         </View>
+
+        {/* XP Flash Overlay */}
+        <Animated.View style={[styles.xpFlash, { opacity: xpFlash }]} pointerEvents="none">
+          <Text style={styles.xpFlashText}>+XP!</Text>
+        </Animated.View>
 
         <StatusBar rank={store.profile.rank} totalXp={store.profile.totalXp} streak={store.profile.currentStreak} todayXp={store.todayXP()} />
 
@@ -78,6 +119,17 @@ export const CommandCenter: React.FC = () => {
           mission={store.todayMission?.statement || null}
           onEdit={() => { setMissionText(store.todayMission?.statement || ''); setMissionModal(true); }}
         />
+
+        {/* All Habits Completed Banner */}
+        {allHabitsCompleted && (
+          <View style={styles.congratsBanner}>
+            <Text style={styles.congratsEmoji}>🏆</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.congratsTitle}>ALL HABITS COMPLETE</Text>
+              <Text style={styles.congratsText}>Outstanding execution. The system works.</Text>
+            </View>
+          </View>
+        )}
 
         {/* Active Block Banner */}
         {store.activeBlock && (
@@ -96,7 +148,10 @@ export const CommandCenter: React.FC = () => {
           habits={store.habits}
           completions={store.todayCompletions}
           isMinimumViableDay={store.isMinimumViableDay()}
-          onToggle={(id) => store.toggleHabitCompletion(id, today)}
+          onToggle={(id) => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            store.toggleHabitCompletion(id, today);
+          }}
         />
 
         <QuickActions
@@ -113,14 +168,7 @@ export const CommandCenter: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>TODAY'S MISSION</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={missionText}
-              onChangeText={setMissionText}
-              placeholder="Define your mission..."
-              placeholderTextColor={colors.textMuted}
-              multiline
-            />
+            <TextInput style={styles.modalInput} value={missionText} onChangeText={setMissionText} placeholder="Define your mission..." placeholderTextColor={colors.textMuted} multiline />
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setMissionModal(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -138,7 +186,6 @@ export const CommandCenter: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>👁 SHADOW LOG</Text>
-
             <Text style={styles.fieldLabel}>Pattern</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
               {DEFAULT_SHADOW_PATTERNS.map(p => (
@@ -147,21 +194,16 @@ export const CommandCenter: React.FC = () => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-
             <Text style={styles.fieldLabel}>Trigger</Text>
             <TextInput style={styles.modalInput} value={shadowTrigger} onChangeText={setShadowTrigger} placeholder="What triggered this?" placeholderTextColor={colors.textMuted} />
-
             <Text style={styles.fieldLabel}>Intensity: {shadowIntensity}</Text>
             <Slider style={{ height: 40 }} minimumValue={1} maximumValue={10} step={1} value={shadowIntensity} onValueChange={v => setShadowIntensity(Math.round(v))} minimumTrackTintColor={colors.danger} maximumTrackTintColor={colors.bgInput} thumbTintColor={colors.danger} />
-
             <Text style={styles.fieldLabel}>Intervention</Text>
             <TextInput style={styles.modalInput} value={shadowIntervention} onChangeText={setShadowIntervention} placeholder="What did you do about it?" placeholderTextColor={colors.textMuted} />
-
             <View style={styles.toggleRow}>
               <Text style={styles.fieldLabel}>Resolved</Text>
               <Switch value={shadowResolved} onValueChange={setShadowResolved} trackColor={{ true: colors.success, false: colors.bgInput }} thumbColor={colors.textPrimary} />
             </View>
-
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setShadowModal(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -239,9 +281,7 @@ export const CommandCenter: React.FC = () => {
                   ))}
                 </View>
                 <Text style={styles.xpNote}>+10 XP on completion</Text>
-                <TouchableOpacity style={[styles.modalSubmit, { marginTop: spacing.md }]} onPress={() => {
-                  store.startBlock(blockCategory);
-                }}>
+                <TouchableOpacity style={[styles.modalSubmit, { marginTop: spacing.md }]} onPress={() => store.startBlock(blockCategory)}>
                   <Text style={styles.modalSubmitText}>▶ Start Block</Text>
                 </TouchableOpacity>
               </>
@@ -262,10 +302,18 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
   content: { padding: spacing.lg, gap: spacing.md },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { color: colors.textPrimary, fontSize: fontSize.xxl, fontWeight: '800', letterSpacing: -1 },
   logoAccent: { color: colors.accent },
-  date: { color: colors.textSecondary, fontSize: fontSize.sm },
+  date: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs },
+  headerBlockIndicator: { marginTop: spacing.xs, backgroundColor: `${colors.success}20`, borderRadius: borderRadius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+  headerBlockText: { color: colors.success, fontSize: fontSize.xs, fontWeight: '700', fontFamily: 'Courier' },
+  xpFlash: { position: 'absolute', top: 60, right: spacing.lg, zIndex: 10, backgroundColor: colors.xp, borderRadius: borderRadius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  xpFlashText: { color: colors.bg, fontWeight: '800', fontSize: fontSize.md },
+  congratsBanner: { backgroundColor: `${colors.success}15`, borderWidth: 1, borderColor: colors.success, borderRadius: borderRadius.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  congratsEmoji: { fontSize: 28 },
+  congratsTitle: { color: colors.success, fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 2 },
+  congratsText: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: 2 },
   activeBlock: { backgroundColor: `${colors.success}20`, borderWidth: 1, borderColor: colors.success, borderRadius: borderRadius.md, padding: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   activeBlockLabel: { color: colors.success, fontWeight: '700', fontSize: fontSize.sm, letterSpacing: 1 },
   activeBlockTimer: { color: colors.success, fontWeight: '800', fontSize: fontSize.xl, fontFamily: 'Courier' },
@@ -274,14 +322,14 @@ const styles = StyleSheet.create({
   modalTitle: { color: colors.textPrimary, fontSize: fontSize.xl, fontWeight: '800', letterSpacing: 1, marginBottom: spacing.lg },
   modalInput: { backgroundColor: colors.bgInput, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, fontSize: fontSize.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md, minHeight: 44 },
   modalActions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
-  modalCancel: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
+  modalCancel: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
   modalCancelText: { color: colors.textSecondary, fontSize: fontSize.md },
-  modalSubmit: { flex: 2, backgroundColor: colors.accent, borderRadius: borderRadius.md, alignItems: 'center', paddingVertical: spacing.sm },
+  modalSubmit: { flex: 2, backgroundColor: colors.accent, borderRadius: borderRadius.md, alignItems: 'center', paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
   modalSubmitText: { color: colors.textPrimary, fontWeight: '700', fontSize: fontSize.md },
   fieldLabel: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '600', marginBottom: spacing.xs, letterSpacing: 0.5 },
   chipRow: { marginBottom: spacing.md, flexGrow: 0 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md },
-  chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgInput },
+  chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgInput, minHeight: 44, justifyContent: 'center' },
   chipActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
   chipText: { color: colors.textSecondary, fontSize: fontSize.sm },
   chipTextActive: { color: colors.textPrimary, fontWeight: '600' },
